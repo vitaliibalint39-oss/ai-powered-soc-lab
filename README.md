@@ -144,3 +144,36 @@ AI-SOC-Lab/
 
 
 **Scope:** authorized defensive testing in an isolated local lab only.
+## Example AI-generated security analysis
+
+The lab demonstrates a synthetic SSH authentication alert detected by Wazuh and analyzed locally with Qwen via LM Studio. The published report is **sanitized and reviewed**: it is an example of the pipeline rather than evidence of a real intrusion.
+
+[View the sanitized SSH incident report](examples/ssh-incident-report.md)
+
+> The assistant provides triage suggestions, not definitive incident findings or automated remediation.
+
+## Project Screenshots
+
+### Wazuh Endpoint Monitoring
+![Wazuh Dashboard](screenshots/01-wazuh-endpoint-dashboard.png)
+
+### Threat Hunting
+![Threat Hunting](screenshots/02-wazuh-threat-hunting.png)
+
+### Security Events
+![Wazuh Events](screenshots/03-wazuh-events.png)
+
+### Security Configuration Assessment
+![Security Assessment](screenshots/04-security-configuration-assessment.png)
+
+### Local Qwen Model
+![Qwen Model](screenshots/05-qwen-local-model.png)
+
+### Wazuh Agent Status
+![Wazuh Agent](screenshots/06-wazuh-agent-status.png)
+
+### Python AI SOC Assistant
+![Python AI Analysis](screenshots/07-python-ai-analysis.png)
+
+### LM Studio Local API Server
+![LM Studio API](screenshots/08-qwen-api-server.png)
