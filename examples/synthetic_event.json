@@ -1,0 +1,7 @@
+{
+  "timestamp": "2026-10-10T02:21:25.000+0000",
+  "agent": {"name": "ubuntu-soc"},
+  "rule": {"description": "sshd: Attempt to login using a non-existent user", "level": 5},
+  "full_log": "Oct 10 02:21:25 ubuntu-soc sshd[1234]: Failed password for invalid user soc-test from 192.168.238.100 port 54321 ssh2",
+  "synthetic": true
+}

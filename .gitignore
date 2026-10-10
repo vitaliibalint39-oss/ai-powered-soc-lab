@@ -1,0 +1,28 @@
+﻿# Python
+.venv/
+venv/
+__pycache__/
+*.pyc
+
+# Local configuration and secrets
+.env
+.env.*
+!.env.example
+*.key
+*-key.pem
+root-ca.pem
+*.p12
+*.pfx
+
+# Local SOC data
+reports/
+processed_events.json
+incident_report.txt
+wazuh_ai_report_*.txt
+*.log
+
+# Editor and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
