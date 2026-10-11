@@ -169,13 +169,13 @@ def main():
                 print(f"Analyzing {i}/{len(pending)}: {event.get('rule', {}).get('description', 'Unknown')}")
                 try:
                     analysis = analyze(model, event)
-                    report = ("# AI SOC Incident Report\\n\\n"
-                              + "Event ID: " + eid + "\\n"
-                              + "Timestamp: " + str(event.get('timestamp', 'unknown')) + "\\n"
-                              + "Agent: " + str(event.get('agent', {}).get('name', 'unknown')) + "\\n"
-                              + "Wazuh rule: " + str(event.get('rule', {}).get('description', 'unknown')) + "\\n"
-                              + "Wazuh level: " + str(event.get('rule', {}).get('level', 'unknown')) + "\\n\\n"
-                              + analysis + "\\n")
+                    report = ("# AI SOC Incident Report\n\n"
+                              + "Event ID: " + eid + "\n"
+                              + "Timestamp: " + str(event.get('timestamp', 'unknown')) + "\n"
+                              + "Agent: " + str(event.get('agent', {}).get('name', 'unknown')) + "\n"
+                              + "Wazuh rule: " + str(event.get('rule', {}).get('description', 'unknown')) + "\n"
+                              + "Wazuh level: " + str(event.get('rule', {}).get('level', 'unknown')) + "\n\n"
+                              + analysis + "\n")
                     name = "incident_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".md"
                     store.save_report(eid, name, report)
                     store.export_reports(REPORTS)
