@@ -14,7 +14,7 @@ from pathlib import Path
 import requests
 from event_store import EventStore
 from analysis_contract import parse_analysis, render_analysis
-from log_guardrails import safe_alert, validate_grounding
+from log_guardrails import safe_alert, validate_grounding, validate_readonly_steps
 
 BASE = Path(__file__).resolve().parent
 STATE = BASE / "processed_events.json"
@@ -188,6 +188,7 @@ def analyze(model, event_id, alert):
                          + str(choice.get("finish_reason")))
     obj = parse_analysis(choice["message"].get("content"), event_id)
     validate_grounding(obj, safe_alert(alert))
+    validate_readonly_steps(obj)
     return render_analysis(obj, model)
 
 
