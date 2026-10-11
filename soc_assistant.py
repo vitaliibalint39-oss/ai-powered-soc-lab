@@ -15,12 +15,14 @@ import requests
 from event_store import EventStore
 from analysis_contract import parse_analysis, render_analysis
 from log_guardrails import safe_alert, validate_grounding, validate_readonly_steps
+from run_journal import RunJournal, print_summary
 
 BASE = Path(__file__).resolve().parent
 STATE = BASE / "processed_events.json"
 DATABASE = BASE / "soc_state.sqlite3"
 LOCK = BASE / ".soc_assistant.lock"
 REPORTS = BASE / "reports"
+RUN_LOG = BASE / "logs" / "soc_runs.jsonl"
 CA_FILE = BASE / "root-ca.pem"
 INDEXER = "https://127.0.0.1:9200"
 LM_STUDIO = "http://127.0.0.1:1234/v1"
@@ -201,7 +203,7 @@ def analyze(model, event_id, alert):
 
 
 
-def main():
+def run_soc(journal):
     if not CA_FILE.is_file():
         raise FileNotFoundError("Copy the trusted Indexer CA to: " + str(CA_FILE))
     REPORTS.mkdir(exist_ok=True)
@@ -220,6 +222,7 @@ def main():
                 alerts = list(get_alerts(session))
             del password
             pending = [(eid, evt) for eid, evt in alerts if eid not in processed]
+            journal.set_counts(fetched=len(alerts), pending=len(pending))
             print(f"Fetched {len(alerts)} matching alerts across all pages; {len(pending)} new.")
             if not pending:
                 return
@@ -227,6 +230,7 @@ def main():
             if len(pending) > limit:
                 print(f"Limiting this run to {limit} of {len(pending)} pending alerts.")
             pending = pending[:limit]
+            journal.set_counts(selected=len(pending))
             model = get_model()
             for i, (eid, event) in enumerate(pending, 1):
                 print(f"Analyzing {i}/{len(pending)}: {event.get('rule', {}).get('description', 'Unknown')}")
@@ -242,13 +246,32 @@ def main():
                     name = "incident_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".md"
                     store.save_report(eid, name, report)
                     store.export_reports(REPORTS)
+                    journal.counts["completed"] += 1
                     print("Saved:", REPORTS / name)
                 except (requests.RequestException, ValueError, RuntimeError, OSError) as exc:
+                    journal.counts["failed"] += 1
                     store.record_failure(eid, exc)
                     print(f"Event {eid} failed; will retry on next run: {exc}", file=sys.stderr)
             print("Completed.")
         finally:
             store.close()
+
+
+def main():
+    journal = RunJournal(RUN_LOG)
+    try:
+        run_soc(journal)
+    except Exception:
+        record = journal.finish("failed")
+        print_summary(record)
+        raise
+    status = "partial_failure" if journal.counts["failed"] else "success"
+    record = journal.finish(status)
+    print_summary(record)
+    if status == "partial_failure":
+        raise RuntimeError("One or more selected events failed; see run summary")
+
+
 
 
 if __name__ == "__main__":
