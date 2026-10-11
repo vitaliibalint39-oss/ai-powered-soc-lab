@@ -69,7 +69,7 @@ The local VM addresses above are **examples from this lab**. Adjust them for you
    .\.venv\Scripts\python.exe soc_assistant.py
 
 
-The script requests the `soc_reader` password interactively. It retrieves up to **20 latest** alerts for `ubuntu-soc` at Wazuh rule level **5 or higher**, processes unseen IDs, and saves a Markdown report for each successful AI response.
+The script requests the `soc_reader` password interactively. It retrieves all matching alerts via **paginated OpenSearch Scroll** for `ubuntu-soc` at Wazuh rule level **5 or higher**, tracks processed IDs and retryable failures in SQLite, and saves Markdown reports after validated AI responses. Set SOC_MODEL_ID to an exact loaded model ID before running.
 
 ## Configuration
 
@@ -78,7 +78,7 @@ Edit these constants at the top of `soc_assistant.py` as required:
 - `INDEXER`: HTTPS connection through the SSH tunnel, default `https://127.0.0.1:9200`.
 - `LM_STUDIO`: local inference endpoint, default `http://127.0.0.1:1234/v1`.
 - `USERNAME`: read-only Indexer account, default `soc_reader`.
-- `BATCH_SIZE`: 20.
+- `BATCH_SIZE`: 20 results per OpenSearch page (not a total processing cap).
 - `MIN_LEVEL`: 5.
 - `agent.name` filter inside `get_alerts()`: currently `ubuntu-soc`.
 
@@ -95,10 +95,10 @@ Edit these constants at the top of `soc_assistant.py` as required:
 ## Known limitations
 
 - This is **manually launched batch processing**, not scheduled or continuous monitoring.
-- Only the latest 20 matching alerts are queried. Events outside that window can be missed; pagination and checkpoint-based ingestion are needed for completeness.
+- Scroll pagination reads the matching snapshot, but continuous ingestion and durable time checkpointing are not implemented. A large backlog can trigger many model requests.
 - Alerts can be benign. Wazuh rule levels and model severity assessments are not equivalent.
-- `processed_events.json` prevents many reruns of the same alert ID, but report writing and state saving are not a transactional system.
-- Model output can be truncated by its token limit and must be reviewed.
+- SQLite persists completed IDs, retryable failures and report text before export; existing processed_events.json is imported without deletion.
+- Qwen output uses a validated JSON contract. Truncation is rejected, but factual accuracy and prompt injection resistance are not guaranteed. Analyst review is required.
 - Raw event metadata and AI report content can expose sensitive details. **Review and redact** any sample before publishing.
 - Local inference performance depends on available RAM/VRAM and model settings.
 
@@ -115,12 +115,12 @@ Edit these constants at the top of `soc_assistant.py` as required:
 - [x] SSH-tunneled Indexer connection
 - [x] Read-only `soc_reader` account
 - [x] Local Qwen analysis and Markdown reports
-- [x] Basic processed-ID tracking in script
+- [x] Add SQLite state, failure tracking and report restoration
 - [ ] Confirm clean repeat-run behavior on the current system
 - [ ] Improve alert classification and false-positive handling
-- [ ] Add paginated and checkpointed ingestion
+- [x] Add paginated Scroll ingestion (continuous checkpointed ingestion remains future work)
 - [ ] Add scheduling and operational monitoring
-- [ ] Write unit/integration tests with sanitized fixtures
+- [x] Add 24 local tests and synthetic live-model checks
 - [ ] Review/report truncation handling, sensitive-field redaction, and repo publish checklist
 
 ## Repository layout
@@ -177,3 +177,10 @@ The lab demonstrates a synthetic SSH authentication alert detected by Wazuh and 
 
 ### LM Studio Local API Server
 ![LM Studio API](screenshots/08-qwen-api-server.png)
+
+## Security hardening review (2026-10-11)
+
+- Verified locally: Indexer listens on loopback, TLS certificate validated (ssl_verify_result 0), anonymous requests returned HTTP 401; SSH root login/password authentication disabled; SSH key authentication and forwarding enabled; user/Administrators/SYSTEM listed on Windows report and SQLite ACLs.
+- The Wazuh reader role grants search and scroll on wazuh-alerts-*; another scoped own_index role exists. This is a role review, not exhaustive verification of effective authorization.
+- LM Studio intentionally listens on all IPv4 interfaces (0.0.0.0:1234) for the Hermes chatbot. Network reachability and firewall restrictions remain unverified; this is an open risk, not a passed check.
+- Local filename/history regex checks found no matched sensitive patterns, but this is not comprehensive history scanning. Published screenshots still need manual redaction review.
