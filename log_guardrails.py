@@ -49,3 +49,18 @@ def validate_grounding(result, alert):
     ):
         raise ValueError("Client source port incorrectly labeled destination")
     return result
+
+# Conservative denylist for actions that change systems. This is defense in depth,
+# not a complete semantic safety classifier.
+MUTATING_ACTION = re.compile(
+    r"\\b(?:block|ban|denylist|blacklist|drop|reject|delete|remove|"
+    r"disable|stop|kill|restart|shutdown|quarantine|isolate|"
+    r"modify|change|update|install|uninstall|reboot)\\b",
+    re.IGNORECASE,
+)
+
+def validate_readonly_steps(result):
+    for step in result["recommended_readonly_steps"]:
+        if MUTATING_ACTION.search(step):
+            raise ValueError("Non-read-only recommendation rejected: " + step)
+    return result
