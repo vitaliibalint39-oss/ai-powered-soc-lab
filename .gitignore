@@ -31,3 +31,6 @@ Thumbs.db
 soc_state.sqlite3
 soc_state.sqlite3-*
 .soc_assistant.lock
+
+# Local structured run telemetry
+logs/
