@@ -1,156 +1,111 @@
 # AI-Powered SOC Lab
 
-**Wazuh SIEM + OpenSearch + Python + Local Qwen LLM**
+**Wazuh SIEM · OpenSearch · Python · SQLite · Local Qwen (LM Studio)**
 
-A hands-on, defensive security operations lab that collects Linux security alerts, retrieves selected Wazuh alerts through a secured SSH tunnel, and uses a locally hosted language model to generate investigation notes. No cloud LLM API is required.
+A hands-on defensive Security Operations Center (SOC) proof of concept. I built and tested a pipeline that retrieves Wazuh alerts over an SSH tunnel, sends selected events to a locally hosted LLM for structured triage, validates its responses, and saves incident notes for analyst review. **The model cannot execute remediation commands.**
 
-> **Project status:** Working proof of concept (manual batch processing). This is not an autonomous incident-response system or a production SOC deployment. Analyst review is required.
+> **Scope:** Isolated/authorized lab, manually operated. This is **not** a production SOC, fully autonomous response system, or continuous alert monitor.
 
 ## Architecture
 
-
+```mermaid
 flowchart LR
-  A[Ubuntu-SOC VM\n192.168.238.136\nWazuh Agent] -->|1514/TCP telemetry| B[Wazuh-SIEM VM\n192.168.238.135\nManager + Indexer]
-  B -->|Index 9200 bound to loopback| C[SSH tunnel over TCP 22]
-  C -->|Windows localhost:9200| D[Python SOC Assistant]
-  D -->|localhost:1234/v1| E[LM Studio\nQwen 3.5 4B]
-  E --> D
-  D --> F[Local Markdown reports\nreports/]
-  B --> G[Wazuh Dashboard\nHTTPS 443]
+    A["Ubuntu 24.04 agent VM<br/>Wazuh Agent"] -->|"Security telemetry"| B["Wazuh Manager + Indexer VM"]
+    B -->|"Indexer bound to loopback"| C["SSH port forwarding + TLS"]
+    C --> D["Python SOC Assistant<br/>Windows host"]
+    D <-->|"OpenAI-compatible local API"| E["LM Studio<br/>Qwen 3.5 4B Instruct"]
+    D --> F[("SQLite event state")]
+    D --> G["Validated Markdown incident reports"]
+    D --> H["Local JSONL run summaries"]
+```
 
+Indexer port 9200 is bound to server loopback. The Windows Python client verifies the Indexer certificate using a local CA file and authenticates with a restricted `soc_reader` account.
 
-The local VM addresses above are **examples from this lab**. Adjust them for your network. The tunnel does not expose OpenSearch port 9200 to the VM network.
+## Demonstrated results
 
-## Verified milestones
-
-- Deployed Ubuntu 24.04 LTS VMs for the Wazuh server and monitored endpoint.
-- Confirmed Wazuh Agent active and Wazuh Dashboard receiving security events.
-- Injected a **synthetic** SSH authentication failure with `logger` and observed the matching Wazuh detection. This was not a real SSH attack.
-- Queried alerts from OpenSearch using the Indexer API over an SSH tunnel.
-- Used a `soc_reader` account with a custom `wazuh_soc_reader` role. Tested successful read access and `403 Forbidden` for the security administration endpoint.
-- Sent alerts to a local Qwen 3.5 4B Instruct model via LM Studio and saved Markdown reports.
-- Tested an initial batch run; subsequent successful events should be tracked via `processed_events.json`.
-
-## Technology stack
-
-| Layer | Technology |
+| Capability | Evidence |
 | --- | --- |
-| Virtualization | VMware (NAT / VMnet8) |
-| Monitored host | Ubuntu 24.04 LTS; Wazuh Agent |
-| SIEM / alert storage | Wazuh Manager, Dashboard, Indexer (OpenSearch API) |
-| Secure access | SSH public-key auth, loopback port forwarding, Indexer CA certificate |
-| Automation | Python 3.10+, `requests` |
-| Local LLM | LM Studio OpenAI-compatible endpoint; Qwen 3.5 4B Instruct |
-| Output | Local Markdown incident reports |
+| Paginated retrieval | 152 matching Wazuh alerts fetched, **152 unique IDs**, verified against a matching count snapshot |
+| Durable state | 20 existing processed IDs migrated to SQLite; integrity check `ok` |
+| Report restoration | 1 synthetic report successfully recovered from a temporary test database |
+| Local LLM triage | Qwen 3.5 4B produced a schema-validated report for a synthetic failed SSH login |
+| Input hardening | One synthetic prompt-injection retest did not cause the LLM to misreport the failed login |
+| Automated tests | **31 mocked/offline tests** passed on Python 3.10 and 3.12 in GitHub Actions |
+| Secrets and privacy | History scan: two generic-key findings identified as the same benign JSON example in two commits; screenshots replaced with redacted versions in current branch history |
 
-## Quick start (Windows PowerShell)
+A passing test does not prove production reliability, complete prompt-injection resistance, or the accuracy of model hypotheses.
 
-1. Install Python 3.10+, LM Studio, VMware, and the Wazuh infrastructure following the appropriate vendor guides. Load the Qwen model in LM Studio and start its local server at `127.0.0.1:1234`.
-2. Configure an SSH key on the Wazuh server for the account allowed to establish the tunnel.
-3. Ensure OpenSearch Indexer listens only on the server's loopback interface and is reachable locally as HTTPS `127.0.0.1:9200`.
-4. On Windows, establish the tunnel in a **separate terminal** (keep it open):
+## What the system does
 
-   powershell
+1. **Collect** Linux security events through Wazuh Agent and Manager.
+2. **Fetch** matching alerts from the OpenSearch Indexer using paginated Scroll over an SSH tunnel.
+3. **Deduplicate** events against a SQLite event ledger. Existing IDs from `processed_events.json` migrate without deleting the original.
+4. **Analyze** at most **5 new alerts per manual run by default** (`SOC_MAX_EVENTS`, range 1–20). The model is pinned to an explicit `SOC_MODEL_ID`.
+5. **Validate** Qwen's JSON output (schema fields, completion status, basic factual anchors, and a conservative filter for mutating recommendations).
+6. **Persist** report content in SQLite before exporting Markdown; keep aggregate local run summaries at `logs/soc_runs.jsonl`.
 
-   ssh -i "$HOME\.ssh\id_ed25519_wazuh" -N -L 127.0.0.1:9200:127.0.0.1:9200 vitalii@192.168.238.135
+No automatic firewall blocking, system modification or external incident response is performed.
 
+## Reproduce the offline test suite
 
-   Replace the username, key path, and address as needed. Verify the SSH host fingerprint independently before first use.
+Requires Python 3.10+; the isolated tests do **not** require VMware, Wazuh, SSH credentials or LM Studio.
 
-5. Copy the **public CA certificate**, not any private key, to `root-ca.pem` beside the script. The HTTPS server certificate must validate for the hostname/IP used by the client. If certificate identity verification fails, fix certificate SAN/hostname rather than disabling verification.
-6. Use an OpenSearch account with **read-only** access to `wazuh-alerts-*`, named `soc_reader` in the example.
-7. In a second PowerShell terminal, run:
+```powershell
+py -m venv .venv
+.\.venv\Scripts\python.exe -m pip install -r requirements.txt
+.\.venv\Scripts\python.exe -m unittest discover -s tests -v
+```
 
+GitHub Actions runs the same tests on pull requests and pushes to `main`, with Python 3.10 and 3.12. See [CI setup](docs/GITHUB_CI.md).
 
-   cd "$HOME\AI-SOC-Lab"
-   py -m venv .venv
-   .\.venv\Scripts\python.exe -m pip install -r requirements.txt
-   .\.venv\Scripts\python.exe -m py_compile soc_assistant.py
-   .\.venv\Scripts\python.exe soc_assistant.py
+## Manual lab operation
 
+See [Ukrainian setup guide](docs/SETUP_UK.md), [security notes](docs/SECURITY.md), [pagination](docs/INGESTION_PAGINATION.md), [SQLite migration](docs/SQLITE_MIGRATION.md), and [model validation](docs/QWEN_OUTPUT_CONTRACT.md). The lab requires a running Wazuh Indexer, a verified SSH tunnel, an authenticated read-only Indexer user, trusted `root-ca.pem`, and a loaded LM Studio model.
 
-The script requests the `soc_reader` password interactively. It retrieves all matching alerts via **paginated OpenSearch Scroll** for `ubuntu-soc` at Wazuh rule level **5 or higher**, tracks processed IDs and retryable failures in SQLite, and saves Markdown reports after validated AI responses. Set SOC_MODEL_ID to an exact loaded model ID before running.
+Example environment settings in a PowerShell session:
 
-## Configuration
+```powershell
+$env:SOC_MODEL_ID = "qwen3.5-4b-instruct"
+$env:SOC_MAX_EVENTS = "5"
+.\.venv\Scripts\python.exe soc_assistant.py
+```
 
-Edit these constants at the top of `soc_assistant.py` as required:
+The assistant prompts interactively for the Indexer reader password. **Do not schedule the script unattended** without a separate secure credential design. Qwen thinking was disabled in LM Studio for the verified synthetic JSON test.
 
-- `INDEXER`: HTTPS connection through the SSH tunnel, default `https://127.0.0.1:9200`.
-- `LM_STUDIO`: local inference endpoint, default `http://127.0.0.1:1234/v1`.
-- `USERNAME`: read-only Indexer account, default `soc_reader`.
-- `BATCH_SIZE`: 20 results per OpenSearch page (not a total processing cap).
-- `MIN_LEVEL`: 5.
-- `agent.name` filter inside `get_alerts()`: currently `ubuntu-soc`.
+## Engineering lessons: audit → fix → verify
 
-## Security design
+The repository includes [Claude and Kimi audit material](audits/README.md). The audits guided engineering work; recommendations were treated as **hypotheses**, not automatically as verified vulnerabilities. The Claude audit had limited source visibility and should not be interpreted as a complete code review.
 
-- No remote execution or automatic firewall blocking by the model.
-- Indexer connectivity uses SSH local forwarding; avoid opening TCP 9200 on the VM network.
-- The script uses the Indexer root CA certificate with `requests` TLS verification enabled.
-- The Indexer username is unprivileged; use admin credentials **only for initial role/user setup**, not the application.
-- Log contents are treated as untrusted input. Model output is advisory and can be wrong.
-- Do **not** commit credentials, private SSH keys, certificates containing private keys, environment files, real logs, raw incident reports, or local state.
-- Although CA certificates are public, `root-ca.pem` is excluded from the public repo by default to avoid confusing environment-specific trust anchors.
+- **Alert loss window:** replaced latest-20-only retrieval with Scroll pagination; verified 152/152 matching alerts.
+- **Crash recovery:** introduced SQLite event state, replayable report exports and retryable errors.
+- **LLM output quality:** enforced a strict JSON contract and explicit model selection; rejected truncated outputs.
+- **Untrusted logs:** bounded log inputs and checked selected factual claims. A live synthetic test revealed a firewall-block recommendation, motivating an additional read-only recommendation filter.
+- **Engineering quality:** added bounded runs, structured summary logging and GitHub CI; CI caught a real regex escaping bug that local tests had not revealed.
 
-## Known limitations
+[Detailed engineering case study](docs/PORTFOLIO_CASE_STUDY.md) · [Sanitized example incident report](examples/ssh-incident-report.md)
 
-- This is **manually launched batch processing**, not scheduled or continuous monitoring.
-- Scroll pagination reads the matching snapshot, but continuous ingestion and durable time checkpointing are not implemented. A large backlog can trigger many model requests.
-- Alerts can be benign. Wazuh rule levels and model severity assessments are not equivalent.
-- SQLite persists completed IDs, retryable failures and report text before export; existing processed_events.json is imported without deletion.
-- Qwen output uses a validated JSON contract. Truncation is rejected, but factual accuracy and prompt injection resistance are not guaranteed. Analyst review is required.
-- Raw event metadata and AI report content can expose sensitive details. **Review and redact** any sample before publishing.
-- Local inference performance depends on available RAM/VRAM and model settings.
+## Security boundaries and known limitations
 
-## Validation evidence
+- The public repo must not include real passwords, private SSH keys, local SQLite databases, unredacted real logs, or raw incident reports.
+- **LM Studio network access remains enabled for a separate Hermes chatbot**, with `0.0.0.0:1234` observed in the local lab. Firewall reachability/source restrictions have **not** been verified; this is an open risk.
+- Although current screenshots were replaced with cleaner copies, older versions remain in Git history. Review history before sharing widely.
+- One synthetic prompt-injection success is **not comprehensive** security assurance. The model may hallucinate attack patterns or misstate evidence; all reports require human review.
+- Scroll is a snapshot read, not continuous ingestion or durable time checkpointing. Runs remain manually initiated.
+- Windows file permissions, TLS, SSH and user roles received targeted checks; they are not a complete penetration test or proof of all effective rights.
 
-- Synthetic SSH log: `Failed password for invalid user soc-test from 192.168.238.100 port 54321 ssh2` detected by Wazuh. `54321` is the **client source port** in that syntax.
-- OpenSearch alert indexes were queried successfully; read-only credentials could read alerts, while the security administration endpoint returned HTTP 403.
-- Qwen analyzed PAM, sudo, and AppArmor-related Wazuh alerts and generated report files. These are model-generated assessments, **not confirmed security incidents**.
+## Repository map
 
-## Roadmap
-
-- [x] Wazuh Manager, Agent, Dashboard, Indexer
-- [x] Synthetic SSH event test
-- [x] SSH-tunneled Indexer connection
-- [x] Read-only `soc_reader` account
-- [x] Local Qwen analysis and Markdown reports
-- [x] Add SQLite state, failure tracking and report restoration
-- [ ] Confirm clean repeat-run behavior on the current system
-- [ ] Improve alert classification and false-positive handling
-- [x] Add paginated Scroll ingestion (continuous checkpointed ingestion remains future work)
-- [ ] Add scheduling and operational monitoring
-- [x] Add 24 local tests and synthetic live-model checks
-- [ ] Review/report truncation handling, sensitive-field redaction, and repo publish checklist
-
-## Repository layout
-
-
-AI-SOC-Lab/
-├── soc_assistant.py
-├── requirements.txt
-├── .gitignore
-├── README.md
-├── docs/
-│   ├── SETUP_UK.md
-│   ├── SECURITY.md
-│   └── TEST_PLAN.md
-├── examples/
-│   └── synthetic_event.json
-├── root-ca.pem             # LOCAL ONLY: do not commit
-├── processed_events.json   # LOCAL ONLY: do not commit
-├── .venv/                  # LOCAL ONLY: do not commit
-└── reports/                # LOCAL ONLY: do not commit
-
-
-**Scope:** authorized defensive testing in an isolated local lab only.
-## Example AI-generated security analysis
-
-The lab demonstrates a synthetic SSH authentication alert detected by Wazuh and analyzed locally with Qwen via LM Studio. The published report is **sanitized and reviewed**: it is an example of the pipeline rather than evidence of a real intrusion.
-
-[View the sanitized SSH incident report](examples/ssh-incident-report.md)
-
-> The assistant provides triage suggestions, not definitive incident findings or automated remediation.
+| Path | Purpose |
+| --- | --- |
+| `soc_assistant.py` | Wazuh ingestion, LLM analysis and manual workflow |
+| `event_store.py` | SQLite persistence and report restoration |
+| `analysis_contract.py` | Structured output parsing and validation |
+| `log_guardrails.py` | Untrusted field bounding and basic grounding |
+| `run_journal.py` | Local structured run summaries |
+| `tests/` | Offline unit tests |
+| `docs/` | Setup, integration tests, security and case study |
+| `audits/` | Public AI-assisted audit material |
+| `screenshots/` | Redacted portfolio screenshots |
 
 ## Project Screenshots
 
@@ -178,9 +133,6 @@ The lab demonstrates a synthetic SSH authentication alert detected by Wazuh and 
 ### LM Studio Local API Server
 ![LM Studio API](screenshots/08-qwen-api-server.png)
 
-## Security hardening review (2026-10-11)
 
-- Verified locally: Indexer listens on loopback, TLS certificate validated (ssl_verify_result 0), anonymous requests returned HTTP 401; SSH root login/password authentication disabled; SSH key authentication and forwarding enabled; user/Administrators/SYSTEM listed on Windows report and SQLite ACLs.
-- The Wazuh reader role grants search and scroll on wazuh-alerts-*; another scoped own_index role exists. This is a role review, not exhaustive verification of effective authorization.
-- LM Studio intentionally listens on all IPv4 interfaces (0.0.0.0:1234) for the Hermes chatbot. Network reachability and firewall restrictions remain unverified; this is an open risk, not a passed check.
-- Local filename/history regex checks found no matched sensitive patterns, but this is not comprehensive history scanning. Published screenshots still need manual redaction review.
+
+**For employers:** This project demonstrates practical Linux administration, Wazuh/OpenSearch investigation, SSH/TLS integration, Python reliability engineering, local LLM integration and disciplined validation—not autonomous security decision-making.
