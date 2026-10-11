@@ -52,6 +52,18 @@ class ContractTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError,"incomplete"):
                 soc_assistant.analyze("qwen","idx:1",{"full_log":"demo"})
 
+    def test_lm_studio_uses_json_schema_not_json_object(self):
+        response=Mock()
+        response.json.return_value={"choices":[{"finish_reason":"stop",
+            "message":{"content":json.dumps(valid())}}]}
+        with patch.object(soc_assistant.requests,"post",return_value=response) as post:
+            soc_assistant.analyze("qwen","idx:1",{"full_log":"demo"})
+            payload=post.call_args.kwargs["json"]
+            self.assertEqual(payload["response_format"]["type"],"json_schema")
+            schema=payload["response_format"]["json_schema"]["schema"]
+            self.assertEqual(set(schema["required"]), set(valid().keys()))
+            self.assertFalse(schema["additionalProperties"])
+
     def test_malformed_completed_response_is_rejected(self):
         response=Mock()
         response.json.return_value={"choices":[{"finish_reason":"stop",
