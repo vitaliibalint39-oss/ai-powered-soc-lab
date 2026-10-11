@@ -26,3 +26,8 @@ wazuh_ai_report_*.txt
 .idea/
 .DS_Store
 Thumbs.db
+
+# SQLite SOC state and single-run guard
+soc_state.sqlite3
+soc_state.sqlite3-*
+.soc_assistant.lock
