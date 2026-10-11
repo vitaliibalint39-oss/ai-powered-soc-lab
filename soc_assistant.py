@@ -143,7 +143,38 @@ def analyze(model, event_id, alert):
                 {"event_id": event_id, "untrusted_alert": alert}, ensure_ascii=False
             )},
         ],
-        "response_format": {"type": "json_object"},
+        "response_format": {
+            "type": "json_schema",
+            "json_schema": {
+                "name": "soc_triage",
+                "strict": True,
+                "schema": {
+                    "type": "object",
+                    "additionalProperties": False,
+                    "required": [
+                        "event_id", "disposition", "severity", "confidence",
+                        "observed_facts", "hypotheses",
+                        "recommended_readonly_steps", "requires_human_review"
+                    ],
+                    "properties": {
+                        "event_id": {"type": "string"},
+                        "disposition": {"type": "string", "enum": [
+                            "BENIGN", "SUSPICIOUS", "MALICIOUS", "INSUFFICIENT_EVIDENCE"
+                        ]},
+                        "severity": {"type": "string", "enum": [
+                            "INFO", "LOW", "MEDIUM", "HIGH", "CRITICAL"
+                        ]},
+                        "confidence": {"type": "number", "minimum": 0, "maximum": 1},
+                        "observed_facts": {"type": "array", "items": {"type": "string"}},
+                        "hypotheses": {"type": "array", "items": {"type": "string"}},
+                        "recommended_readonly_steps": {
+                            "type": "array", "items": {"type": "string"}
+                        },
+                        "requires_human_review": {"type": "boolean", "const": True}
+                    }
+                }
+            }
+        },
         "temperature": 0.2,
         "max_tokens": 2200,
     }
