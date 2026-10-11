@@ -29,6 +29,14 @@ BATCH_SIZE = 20
 MIN_LEVEL = 5
 
 
+def get_run_limit():
+    """Conservative cap for actual model calls per manual run."""
+    raw = os.environ.get("SOC_MAX_EVENTS", "5")
+    if not raw.isdecimal() or not 1 <= int(raw) <= 20:
+        raise ValueError("SOC_MAX_EVENTS must be an integer between 1 and 20")
+    return int(raw)
+
+
 @contextlib.contextmanager
 def single_run_lock():
     """Prevent concurrent workers. If killed abruptly, verify no worker runs
@@ -215,7 +223,10 @@ def main():
             print(f"Fetched {len(alerts)} matching alerts across all pages; {len(pending)} new.")
             if not pending:
                 return
-            print("WARNING: All unprocessed alerts will be analyzed. Stop now if this backlog is too large.")
+            limit = get_run_limit()
+            if len(pending) > limit:
+                print(f"Limiting this run to {limit} of {len(pending)} pending alerts.")
+            pending = pending[:limit]
             model = get_model()
             for i, (eid, event) in enumerate(pending, 1):
                 print(f"Analyzing {i}/{len(pending)}: {event.get('rule', {}).get('description', 'Unknown')}")
