@@ -53,9 +53,9 @@ def validate_grounding(result, alert):
 # Conservative denylist for actions that change systems. This is defense in depth,
 # not a complete semantic safety classifier.
 MUTATING_ACTION = re.compile(
-    r"\\b(?:block|ban|denylist|blacklist|drop|reject|delete|remove|"
+    r"\b(?:block|ban|denylist|blacklist|drop|reject|delete|remove|"
     r"disable|stop|kill|restart|shutdown|quarantine|isolate|"
-    r"modify|change|update|install|uninstall|reboot)\\b",
+    r"modify|change|update|install|uninstall|reboot)\b",
     re.IGNORECASE,
 )
 
