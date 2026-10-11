@@ -4,6 +4,7 @@ Run from Windows with a tunnel to Wazuh Indexer on 127.0.0.1:9200.
 Requires: requests and the Indexer CA certificate root-ca.pem.
 """
 import getpass
+import contextlib
 import json
 import os
 import sys
@@ -11,9 +12,12 @@ from datetime import datetime
 from pathlib import Path
 
 import requests
+from event_store import EventStore
 
 BASE = Path(__file__).resolve().parent
 STATE = BASE / "processed_events.json"
+DATABASE = BASE / "soc_state.sqlite3"
+LOCK = BASE / ".soc_assistant.lock"
 REPORTS = BASE / "reports"
 CA_FILE = BASE / "root-ca.pem"
 INDEXER = "https://127.0.0.1:9200"
@@ -23,19 +27,22 @@ BATCH_SIZE = 20
 MIN_LEVEL = 5
 
 
-def load_ids():
-    if not STATE.exists():
-        return set()
-    contents = json.loads(STATE.read_text(encoding="utf-8"))
-    if not isinstance(contents, list):
-        raise ValueError("processed_events.json must contain a JSON list")
-    return set(contents)
-
-
-def save_ids(ids):
-    tmp = STATE.with_suffix(".json.tmp")
-    tmp.write_text(json.dumps(sorted(ids), indent=2), encoding="utf-8")
-    os.replace(tmp, STATE)
+@contextlib.contextmanager
+def single_run_lock():
+    """Prevent concurrent workers. If killed abruptly, verify no worker runs
+    before manually deleting the stale .soc_assistant.lock file."""
+    try:
+        fd = os.open(str(LOCK), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError as exc:
+        raise RuntimeError(
+            "Another run may be active. Check processes before removing " + str(LOCK)
+        ) from exc
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as stream:
+            stream.write(str(os.getpid()))
+        yield
+    finally:
+        LOCK.unlink(missing_ok=True)
 
 
 def get_alerts(session):
@@ -138,40 +145,47 @@ def main():
     if not CA_FILE.is_file():
         raise FileNotFoundError("Copy the trusted Indexer CA to: " + str(CA_FILE))
     REPORTS.mkdir(exist_ok=True)
-    processed = load_ids()
-    password = getpass.getpass("Password for Wazuh soc_reader: ")
-    with requests.Session() as session:
-        session.auth = (USERNAME, password)
-        session.verify = str(CA_FILE)
-        print("Reading Wazuh alerts...")
-        alerts = list(get_alerts(session))
-    del password
-    pending = [(eid, evt) for eid, evt in alerts if eid not in processed]
-    print(f"Fetched {len(alerts)} matching alerts across all pages; {len(pending)} new in this batch.")
-    if not pending:
-        return
-    model = get_model()
-    for i, (eid, event) in enumerate(pending, 1):
-        print(f"Analyzing {i}/{len(pending)}: {event.get('rule', {}).get('description', 'Unknown')}")
+    with single_run_lock():
+        store = EventStore(DATABASE, STATE)
         try:
-            analysis = analyze(model, event)
-            safe_event = dict(event)
-            # Avoid exporting unnecessary source information to a public repository.
-            report = ("# AI SOC Incident Report\n\n"
-                      + "Event ID: " + eid + "\n"
-                      + "Timestamp: " + str(event.get('timestamp', 'unknown')) + "\n"
-                      + "Agent: " + str(event.get('agent', {}).get('name', 'unknown')) + "\n"
-                      + "Wazuh rule: " + str(event.get('rule', {}).get('description', 'unknown')) + "\n"
-                      + "Wazuh level: " + str(event.get('rule', {}).get('level', 'unknown')) + "\n\n"
-                      + analysis + "\n")
-            name = "incident_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".md"
-            (REPORTS / name).write_text(report, encoding="utf-8")
-            processed.add(eid)
-            save_ids(processed)
-            print("Saved:", REPORTS / name)
-        except (requests.RequestException, ValueError, RuntimeError, OSError) as exc:
-            print(f"Event {eid} failed; will retry on next run: {exc}", file=sys.stderr)
-    print("Completed.")
+            restored = store.export_reports(REPORTS)
+            if restored:
+                print(f"Restored {restored} missing report file(s) from SQLite.")
+            processed = store.completed_ids()
+            password = getpass.getpass("Password for Wazuh soc_reader: ")
+            with requests.Session() as session:
+                session.auth = (USERNAME, password)
+                session.verify = str(CA_FILE)
+                print("Reading Wazuh alerts...")
+                alerts = list(get_alerts(session))
+            del password
+            pending = [(eid, evt) for eid, evt in alerts if eid not in processed]
+            print(f"Fetched {len(alerts)} matching alerts across all pages; {len(pending)} new.")
+            if not pending:
+                return
+            print("WARNING: All unprocessed alerts will be analyzed. Stop now if this backlog is too large.")
+            model = get_model()
+            for i, (eid, event) in enumerate(pending, 1):
+                print(f"Analyzing {i}/{len(pending)}: {event.get('rule', {}).get('description', 'Unknown')}")
+                try:
+                    analysis = analyze(model, event)
+                    report = ("# AI SOC Incident Report\\n\\n"
+                              + "Event ID: " + eid + "\\n"
+                              + "Timestamp: " + str(event.get('timestamp', 'unknown')) + "\\n"
+                              + "Agent: " + str(event.get('agent', {}).get('name', 'unknown')) + "\\n"
+                              + "Wazuh rule: " + str(event.get('rule', {}).get('description', 'unknown')) + "\\n"
+                              + "Wazuh level: " + str(event.get('rule', {}).get('level', 'unknown')) + "\\n\\n"
+                              + analysis + "\\n")
+                    name = "incident_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".md"
+                    store.save_report(eid, name, report)
+                    store.export_reports(REPORTS)
+                    print("Saved:", REPORTS / name)
+                except (requests.RequestException, ValueError, RuntimeError, OSError) as exc:
+                    store.record_failure(eid, exc)
+                    print(f"Event {eid} failed; will retry on next run: {exc}", file=sys.stderr)
+            print("Completed.")
+        finally:
+            store.close()
 
 
 if __name__ == "__main__":
