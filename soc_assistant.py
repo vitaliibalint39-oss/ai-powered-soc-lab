@@ -39,9 +39,14 @@ def save_ids(ids):
 
 
 def get_alerts(session):
+    """Yield every matching Wazuh alert from a consistent scroll snapshot.
+
+    Scroll is used instead of only returning the most recent BATCH_SIZE alerts.
+    The indexer may require scroll read permissions for soc_reader.
+    """
     payload = {
         "size": BATCH_SIZE,
-        "sort": [{"timestamp": {"order": "asc"}}],
+        "sort": ["_doc"],
         "query": {
             "bool": {
                 "filter": [
@@ -55,17 +60,43 @@ def get_alerts(session):
             "data.srcip", "full_log"
         ],
     }
-    # Recent first for sampling, then process oldest-to-newest within the batch.
-    payload["sort"] = [{"timestamp": {"order": "desc"}}]
-    response = session.post(
-        INDEXER + "/wazuh-alerts-*/_search", json=payload, timeout=30
-    )
-    response.raise_for_status()
-    hits = response.json()["hits"]["hits"]
-    return list(reversed([
-        (hit["_index"] + ":" + hit["_id"], hit["_source"])
-        for hit in hits
-    ]))
+    scroll_id = None
+    try:
+        response = session.post(
+            INDEXER + "/wazuh-alerts-*/_search",
+            params={"scroll": "2m"}, json=payload, timeout=30,
+        )
+        response.raise_for_status()
+        page = response.json()
+        while True:
+            scroll_id = page.get("_scroll_id", scroll_id)
+            if not scroll_id:
+                raise RuntimeError("OpenSearch response is missing _scroll_id")
+            hits = page["hits"]["hits"]
+            if not isinstance(hits, list):
+                raise ValueError("OpenSearch hits must be a list")
+            if not hits:
+                break
+            for hit in hits:
+                yield hit["_index"] + ":" + hit["_id"], hit["_source"]
+            response = session.post(
+                INDEXER + "/_search/scroll",
+                json={"scroll": "2m", "scroll_id": scroll_id}, timeout=30,
+            )
+            response.raise_for_status()
+            page = response.json()
+    finally:
+        if scroll_id:
+            try:
+                response = session.delete(
+                    INDEXER + "/_search/scroll",
+                    json={"scroll_id": [scroll_id]}, timeout=15,
+                )
+                response.raise_for_status()
+            except requests.RequestException as exc:
+                # The indexer automatically expires contexts; preserve any
+                # earlier processing exception instead of masking it.
+                print("WARNING: scroll cleanup failed: " + str(exc), file=sys.stderr)
 
 
 def get_model():
@@ -113,10 +144,10 @@ def main():
         session.auth = (USERNAME, password)
         session.verify = str(CA_FILE)
         print("Reading Wazuh alerts...")
-        alerts = get_alerts(session)
+        alerts = list(get_alerts(session))
     del password
     pending = [(eid, evt) for eid, evt in alerts if eid not in processed]
-    print(f"Fetched {len(alerts)} recent matching alerts; {len(pending)} new in this batch.")
+    print(f"Fetched {len(alerts)} matching alerts across all pages; {len(pending)} new in this batch.")
     if not pending:
         return
     model = get_model()
