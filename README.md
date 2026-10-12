@@ -136,3 +136,7 @@ The repository includes [Claude and Kimi audit material](audits/README.md). The 
 
 
 **For employers:** This project demonstrates practical Linux administration, Wazuh/OpenSearch investigation, SSH/TLS integration, Python reliability engineering, local LLM integration and disciplined validation—not autonomous security decision-making.
+
+## Portfolio & Professional Services
+
+Explore my Linux infrastructure, cybersecurity, and AI automation work: [ta551.info](https://ta551.info/).
