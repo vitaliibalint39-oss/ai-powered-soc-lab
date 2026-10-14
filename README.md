@@ -139,4 +139,6 @@ The repository includes [Claude and Kimi audit material](audits/README.md). The 
 
 ## Portfolio & Professional Services
 
-Explore my Linux infrastructure, cybersecurity, and AI automation work: [ta551.info](https://ta551.info/).
+- [Detailed engineering case study: Building a Local AI SOC Lab with Wazuh and Qwen](https://ta551.info/blog/wazuh-ai-security-lab/)
+- [Wazuh SIEM and AI SOC lab overview](https://ta551.info/wazuh-lab.html)
+- [Linux, cybersecurity, and AI automation portfolio](https://ta551.info/)
