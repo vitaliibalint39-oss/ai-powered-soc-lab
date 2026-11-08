@@ -142,3 +142,9 @@ The repository includes [Claude and Kimi audit material](audits/README.md). The 
 - [Detailed engineering case study: Building a Local AI SOC Lab with Wazuh and Qwen](https://ta551.info/blog/wazuh-ai-security-lab/)
 - [Wazuh SIEM and AI SOC lab overview](https://ta551.info/wazuh-lab.html)
 - [Linux, cybersecurity, and AI automation portfolio](https://ta551.info/)
+
+## Azure-to-on-premises Wazuh SSH validation (November 2026)
+
+I also completed a **separate Azure Ubuntu → Tailscale → local Wazuh Manager** lab. The Azure Wazuh agent (`002`) was active during testing, and one controlled invalid-user SSH event produced **Wazuh rule 5710, level 5**, visible in the Threat Hunting Dashboard. After testing, I removed temporary public SSH access and deallocated the VM.
+
+[Read the verified Azure SSH detection case study](docs/AZURE_WAZUH_SSH_DETECTION_2026-11-08.md). This demonstrates cloud-to-local log ingestion **while the Azure VM was running**, not 24/7 monitoring or automatic processing through Qwen.
