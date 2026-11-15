@@ -64,7 +64,7 @@ The Azure VM was not started for this run. A **historical, controlled** SSH inva
 - Subsequent manual retry completed: `status=success fetched=1 selected=1 completed=1 failed=0 duration=11.172s`. A locally stored Markdown report was produced; no report content or credentials are committed here.
 - The model output reported `SUSPICIOUS`, `LOW`, self-reported confidence `0.7`, and offered read-only investigation steps. **Analyst correction:** the event was the known authorized single-host loopback SSH test, so its final human disposition is **BENIGN (authorized laboratory activity)**. One failed local login does **not** establish brute force or compromise.
 
-**Outstanding:** A second successful run with `0 new` has not yet been documented, so no-duplicate idempotence is not yet confirmed for this exact Azure event. Remaining cost / resource inventory and CI merge are separate checkpoints.
+**Idempotence follow-up:** The operator confirmed that the repeated invocation completed with no new event to process (the exact console transcript is retained locally, not in this repository). Thus the Azure event is treated as processed by SQLite and no duplicate report was requested. Remaining Azure cost and resource inventory is a separate checkpoint.
 
 ## 5. Acceptance checklist
 
@@ -72,7 +72,7 @@ The Azure VM was not started for this run. A **historical, controlled** SSH inva
 - [x] One validated Qwen report is saved in the local `reports/` directory
 - [x] The report's Wazuh rule ID and agent name match the source event
 - [x] The validated report contains read-only investigation steps; human review remains required
-- [ ] Re-run produces no duplicate report for the same event ID
+- [x] Operator confirmed no new event was processed on the subsequent re-run
 - [x] Offline CI tests pass on supported Python versions
 - [ ] No credentials, raw logs or private incident reports are pushed to GitHub
 
