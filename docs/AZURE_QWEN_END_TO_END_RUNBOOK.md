@@ -1,6 +1,6 @@
 # Azure SSH alert → local Qwen: controlled end-to-end runbook
 
-**Status:** Prepared for live validation, **not yet verified end to end**. This extends the [already verified Azure-to-Wazuh transport](AZURE_WAZUH_SSH_DETECTION_2026-11-08.md) and the [already verified local Qwen triage](../README.md). Do not claim the combined path works until a matching Azure event is retrieved and a validated report is saved.
+**Status:** **Historical Azure alert → local Qwen end-to-end manual run verified on November 14, 2026 (Michigan).** This extends the [previously verified Azure-to-Wazuh transport](AZURE_WAZUH_SSH_DETECTION_2026-11-08.md) and the [local Qwen triage](../README.md). It does not imply the Azure VM was running during the November 14 analysis, continuous monitoring, autonomous response, or production readiness.
 
 ## Safety and prerequisites
 
@@ -52,18 +52,32 @@ $env:SOC_MODEL_ID = "qwen3.5-4b-instruct" # replace with exact ID reported by LM
 
 Enter `soc_reader` password **only at the local terminal prompt**. The assistant searches indexed Wazuh alerts for agent `azure-devops-lab`, Wazuh rule `5710`, level >= 5, and processes at most one new event.
 
-## 4. Acceptance checklist
+## 4. Actual end-to-end verification (November 14, 2026, Michigan)
 
-- [ ] The Wazuh indexer actually returns an event with agent `azure-devops-lab` and rule `5710`
-- [ ] One validated Qwen report is saved in the local `reports/` directory
-- [ ] The report's Wazuh rule ID and agent name match the source event
-- [ ] No mutating remediation steps are accepted; human review remains required
+The Azure VM was not started for this run. A **historical, controlled** SSH invalid-user event from November 8 remained in the Wazuh archived alert JSON and the OpenSearch alert index.
+
+- Wazuh Indexer returned **one matching document**, with agent `azure-devops-lab`, rule `5710`, level `5`, and timestamp `2026-11-08T00:30:25.167+0000`.
+- `soc_reader` initially returned **403** after its password was updated: the existing `wazuh_soc_reader` role had correct index permissions but **no user mapping**. Assigning the existing internal user `soc_reader` to that role restored read-only search (`hits.total.value = 1`).
+- SSH port forwarding from Windows to Indexer succeeded; LM Studio exposed the approved model ID `qwen3.5-4b-instruct`.
+- Local offline test suite: **35 tests, OK**. GitHub Actions checks also passed on Python 3.10 and 3.12 for the proposed code.
+- Initial attempt fetched one event but failed **safely** because the model output terminated with `finish_reason=length`: `completed=0, failed=1`. No incident report was accepted.
+- Subsequent manual retry completed: `status=success fetched=1 selected=1 completed=1 failed=0 duration=11.172s`. A locally stored Markdown report was produced; no report content or credentials are committed here.
+- The model output reported `SUSPICIOUS`, `LOW`, self-reported confidence `0.7`, and offered read-only investigation steps. **Analyst correction:** the event was the known authorized single-host loopback SSH test, so its final human disposition is **BENIGN (authorized laboratory activity)**. One failed local login does **not** establish brute force or compromise.
+
+**Outstanding:** A second successful run with `0 new` has not yet been documented, so no-duplicate idempotence is not yet confirmed for this exact Azure event. Remaining cost / resource inventory and CI merge are separate checkpoints.
+
+## 5. Acceptance checklist
+
+- [x] The Wazuh indexer actually returns an event with agent `azure-devops-lab` and rule `5710`
+- [x] One validated Qwen report is saved in the local `reports/` directory
+- [x] The report's Wazuh rule ID and agent name match the source event
+- [x] The validated report contains read-only investigation steps; human review remains required
 - [ ] Re-run produces no duplicate report for the same event ID
-- [ ] Offline CI tests pass on supported Python versions
+- [x] Offline CI tests pass on supported Python versions
 - [ ] No credentials, raw logs or private incident reports are pushed to GitHub
 
 If no indexed events are found, inspect the Wazuh Dashboard / index retention and the original Manager alert data first. Do not fabricate a success report. A synthetic fixture can verify offline code only, **not** Azure-to-Qwen live connectivity.
 
-## 5. Cost-controlled finish
+## 6. Cost-controlled finish
 
 Back up non-secret Terraform/Ansible and documentation to GitHub. Review `az resource list` and Azure billing before deleting or recreating anything. Deallocate any deliberately started VM when finished; resource deletion is a separate, explicit action.
