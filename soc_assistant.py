@@ -7,6 +7,7 @@ import getpass
 import contextlib
 import json
 import os
+import re
 import sys
 from datetime import datetime
 from pathlib import Path
@@ -29,6 +30,22 @@ LM_STUDIO = "http://127.0.0.1:1234/v1"
 USERNAME = "soc_reader"
 BATCH_SIZE = 20
 MIN_LEVEL = 5
+
+
+def get_agent_name():
+    """Choose one exact, trusted Wazuh agent name; do not accept query syntax."""
+    name = os.environ.get("SOC_AGENT_NAME", "ubuntu-soc").strip()
+    if not re.fullmatch(r"[A-Za-z0-9][A-Za-z0-9._-]{0,127}", name):
+        raise ValueError("SOC_AGENT_NAME must be 1-128 safe ASCII characters")
+    return name
+
+
+def get_rule_id():
+    """Optionally filter to one exact numeric Wazuh rule ID."""
+    rule_id = os.environ.get("SOC_RULE_ID", "").strip()
+    if rule_id and (not rule_id.isascii() or not rule_id.isdecimal() or len(rule_id) > 10):
+        raise ValueError("SOC_RULE_ID must be an ASCII numeric Wazuh rule ID")
+    return rule_id
 
 
 def get_run_limit():
@@ -63,19 +80,23 @@ def get_alerts(session):
     Scroll is used instead of only returning the most recent BATCH_SIZE alerts.
     The indexer may require scroll read permissions for soc_reader.
     """
+    filters = [
+        {"term": {"agent.name": get_agent_name()}},
+        {"range": {"rule.level": {"gte": MIN_LEVEL}}},
+    ]
+    rule_id = get_rule_id()
+    if rule_id:
+        filters.append({"term": {"rule.id": rule_id}})
     payload = {
         "size": BATCH_SIZE,
         "sort": ["_doc"],
         "query": {
             "bool": {
-                "filter": [
-                    {"term": {"agent.name": "ubuntu-soc"}},
-                    {"range": {"rule.level": {"gte": MIN_LEVEL}}},
-                ]
+                "filter": filters
             }
         },
         "_source": [
-            "timestamp", "agent.name", "rule.description", "rule.level",
+            "timestamp", "agent.name", "rule.id", "rule.description", "rule.level",
             "data.srcip", "full_log"
         ],
     }
@@ -241,6 +262,7 @@ def run_soc(journal):
                               + "Timestamp: " + str(event.get('timestamp', 'unknown')) + "\n"
                               + "Agent: " + str(event.get('agent', {}).get('name', 'unknown')) + "\n"
                               + "Wazuh rule: " + str(event.get('rule', {}).get('description', 'unknown')) + "\n"
+                              + "Wazuh rule ID: " + str(event.get('rule', {}).get('id', 'unknown')) + "\n"
                               + "Wazuh level: " + str(event.get('rule', {}).get('level', 'unknown')) + "\n\n"
                               + analysis + "\n")
                     name = "incident_" + datetime.now().strftime("%Y%m%d_%H%M%S_%f") + ".md"
